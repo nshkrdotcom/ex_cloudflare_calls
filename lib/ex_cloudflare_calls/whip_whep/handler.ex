@@ -4,8 +4,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
   """
 
   alias ExCloudflareCalls.WhipWhep.Store
-  alias ExCloudflareCalls.Session
-  alias ExCloudflareCore.API
+  alias ExCloudflareCore.API.Calls
 
   @type session_description :: %{
     sdp: String.t(),
@@ -53,14 +52,14 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
 
   defp handle_whip_post(conn, live_id) do
     with {:ok, body, conn} <- read_body(conn),
-         {:ok, %{"session_id" => session_id}} <- Session.new_session(),
+         {:ok, %{"session_id" => session_id}} <- Calls.create_session(),
          {:ok, tracks_result} <- create_tracks(session_id, body) do
       
-      tracks = Enum.map(tracks_result.tracks, fn track ->
+      tracks = Enum.map(tracks_result["tracks"], fn track ->
         %{
           location: "remote",
           session_id: session_id,
-          track_name: track.track_name
+          track_name: track["track_name"]
         }
       end)
 
@@ -71,7 +70,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
       |> put_resp_header("protocol-version", "draft-ietf-wish-whip-06")
       |> put_resp_header("etag", ~s("#{session_id}"))
       |> put_resp_header("location", "/ingest/#{live_id}/#{session_id}")
-      |> send_resp(201, tracks_result.session_description.sdp)
+      |> send_resp(201, tracks_result["session_description"]["sdp"])
     end
   end
 
@@ -83,7 +82,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
   defp handle_whep_post(conn, live_id) do
     with {:ok, body, conn} <- read_body(conn),
          {:ok, tracks} <- Store.get_tracks(live_id),
-         {:ok, %{"session_id" => session_id}} <- Session.new_session(),
+         {:ok, %{"session_id" => session_id}} <- Calls.create_session(),
          {:ok, tracks_result} <- create_tracks(session_id, body, tracks) do
       
       conn
@@ -93,7 +92,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
       |> put_resp_header("location", "/play/#{live_id}/#{session_id}")
       |> put_resp_header("access-control-expose-headers", "location")
       |> put_resp_header("access-control-allow-origin", "*")
-      |> send_resp(201, tracks_result.session_description.sdp)
+      |> send_resp(201, tracks_result["session_description"]["sdp"])
     else
       {:ok, []} ->
         conn
@@ -107,7 +106,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
 
   defp handle_whep_patch(conn, session_id) do
     with {:ok, body, conn} <- read_body(conn),
-         {:ok, _} <- Session.renegotiate(session_id, body) do
+         {:ok, _} <- Calls.renegotiate(session_id, %{type: "answer", sdp: body}) do
       conn
       |> put_resp_header("access-control-allow-origin", "*")
       |> send_resp(200, "")
@@ -133,7 +132,7 @@ defmodule ExCloudflareCalls.WhipWhep.Handler do
       }
     end
 
-    Session.new_tracks(session_id, body)
+    Calls.create_tracks(session_id, body)
   end
 
   defp handle_error(conn, error) do
